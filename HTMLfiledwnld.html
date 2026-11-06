@@ -1,0 +1,1745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direct Folder Code Editor & Runner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- JSZip Library for Bundling All Files Into One Download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <style>
+        :root {
+            --bg-base: #060b19;
+            --accent-cyan: #00f0ff;
+            --accent-green: #00ff87;
+            --accent-orange: #ffb020;
+            --text-main: #ffffff;
+            --text-secondary: #a0aec0;
+            --glass-bg: rgba(10, 25, 50, 0.4);
+            --glass-border: rgba(255, 255, 255, 0.12);
+            --transition-smooth: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+
+            --bg-color: var(--bg-base);
+            --sidebar-bg: rgba(6, 11, 25, 0.7);
+            --editor-bg: transparent;
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-muted: var(--text-secondary);
+            --accent-color: var(--accent-green);
+            --accent-hover: #00e074;
+            --run-color: var(--accent-cyan);
+            --run-hover: #00d8e6;
+            --danger-color: #f85149;
+            --active-file-bg: rgba(0, 240, 255, 0.1);
+        }
+
+        /* --- GLOBAL CUSTOM MACOS DEFAULT CURSOR --- */
+        * {
+            cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4.5 3V20.5L9.5 15.5H17.5L4.5 3Z' fill='%231E1E1E' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E"), auto !important;
+        }
+
+        /* --- MACOS STYLE SELECTION TEXT I-BEAM CURSOR --- */
+        textarea, .textarea-wrapper {
+            cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M8 4H16M12 4V20M8 20H16' stroke='%231E1E1E' stroke-width='2.5' stroke-linecap='round'/%3E%3Cpath d='M8 4H16M12 4V20M8 20H16' stroke='white' stroke-width='1' stroke-linecap='round'/%3E%3C/svg%3E") 12 12, text !important;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* --- Ambient Floating Orbs --- */
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(140px);
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.4;
+        }
+
+        .orb-cyan {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, var(--accent-cyan) 0%, rgba(0,240,255,0) 70%);
+            top: -10%;
+            left: -10%;
+            animation: drift-one 20s infinite alternate ease-in-out;
+        }
+
+        .orb-green {
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, var(--accent-green) 0%, rgba(0,255,135,0) 70%);
+            bottom: -10%;
+            right: -10%;
+            animation: drift-two 25s infinite alternate ease-in-out;
+        }
+
+        @keyframes drift-one {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(60px, 40px) scale(1.15); }
+        }
+
+        @keyframes drift-two {
+            0% { transform: translate(0, 0) scale(1.1); }
+            100% { transform: translate(-80px, -40px) scale(0.9); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .orb { animation: none; }
+        }
+
+        /* --- MOUSE GLOW TRAIL EFFECT --- */
+        .mouse-glow {
+            position: fixed;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(0, 240, 255, 0.15) 0%, rgba(0, 255, 137, 0.03) 40%, rgba(0,0,0,0) 70%);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 9999;
+            transform: translate(-50%, -50%);
+            mix-blend-mode: screen;
+            filter: blur(20px);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        /* --- SIDEBAR LAYOUT --- */
+        .sidebar {
+            width: 260px;
+            background-color: var(--sidebar-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-right: 1px solid var(--glass-border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            z-index: 2;
+        }
+
+        .sidebar-header {
+            padding: 20px 15px;
+            border-bottom: 1px solid var(--glass-border);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .sidebar-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .folder-btn {
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            padding: 10px 14px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 13px;
+            font-family: inherit;
+            transition: var(--transition-smooth);
+        }
+        .folder-btn:hover {
+            background-color: rgba(255, 255, 255, 0.08);
+            border-color: var(--text-secondary);
+            transform: scale(1.03);
+        }
+
+        .gh-btn.connected {
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .new-file-btn {
+            background: linear-gradient(135deg, var(--accent-green), #00e074);
+            color: #020611;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 50px;
+            font-weight: 700;
+            font-size: 13px;
+            font-family: inherit;
+            width: 100%;
+            transition: var(--transition-smooth);
+            box-shadow: 0 4px 15px rgba(0, 255, 135, 0.2);
+        }
+        .new-file-btn:hover {
+            transform: scale(1.03);
+            box-shadow: 0 0 20px rgba(0, 255, 135, 0.4);
+        }
+
+        .download-all-btn {
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            padding: 8px 14px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 12px;
+            font-family: inherit;
+            width: 100%;
+            transition: var(--transition-smooth);
+            box-sizing: border-box;
+        }
+        .download-all-btn:hover {
+            background: rgba(0, 240, 255, 0.25);
+            transform: scale(1.03);
+        }
+
+        .refresh-btn {
+            padding: 8px 14px;
+            font-size: 12px;
+        }
+
+        .auto-push-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .auto-push-row[hidden], .refresh-btn[hidden] { display: none; }
+
+        .file-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px 0;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            font-size: 14px;
+            transition: var(--transition-smooth);
+            border-left: 2px solid transparent;
+        }
+        .file-item:hover {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+        .file-item.active {
+            background-color: var(--active-file-bg);
+            font-weight: 600;
+            border-left: 2px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+        .file-item.dirty .file-name::after {
+            content: ' •';
+            color: var(--accent-orange);
+        }
+
+        .file-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+            margin-right: 10px;
+        }
+
+        .file-name-input {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--accent-cyan);
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 14px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            width: 55%;
+            outline: none;
+        }
+
+        .file-ext-select {
+            background: rgba(10, 25, 50, 0.9);
+            border: 1px solid var(--glass-border);
+            color: var(--accent-cyan);
+            font-size: 12px;
+            padding: 2px;
+            border-radius: 4px;
+            outline: none;
+            width: 30%;
+            margin-left: 4px;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .file-item:hover .file-actions { opacity: 1; }
+
+        .action-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 4px;
+            border-radius: 50%;
+            transition: var(--transition-smooth);
+        }
+        .action-btn:hover { color: var(--text-main); background: rgba(255,255,255,0.1); }
+        .action-btn.delete:hover { color: var(--danger-color); background: rgba(248, 81, 73, 0.1); }
+
+        .list-empty {
+            padding: 15px;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        /* --- MAIN WORKSPACE --- */
+        .workspace {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            background-color: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            z-index: 1;
+        }
+
+        .top-bar {
+            height: 65px;
+            border-bottom: 1px solid var(--glass-border);
+            background-color: rgba(6, 11, 25, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+        }
+
+        .current-file-info {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            letter-spacing: -0.2px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .autosave-status {
+            font-size: 11px;
+            color: var(--accent-green);
+            opacity: 0.8;
+            font-weight: 400;
+        }
+
+        .top-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-action {
+            padding: 10px 18px;
+            border-radius: 50px;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: inherit;
+            transition: var(--transition-smooth);
+            will-change: transform;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+        .btn-action:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .btn-save {
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+        }
+        .btn-save:hover:not(:disabled) {
+            background-color: rgba(255, 255, 255, 0.08);
+            border-color: var(--text-secondary);
+            transform: scale(1.03);
+        }
+
+        .btn-download {
+            background-color: rgba(6, 11, 25, 0.6);
+            border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.1);
+        }
+        .btn-download:hover:not(:disabled) {
+            transform: scale(1.03);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+            background-color: rgba(0, 240, 255, 0.05);
+        }
+
+        .btn-download-all {
+            background-color: rgba(0, 255, 135, 0.1);
+            border: 1px solid var(--accent-green);
+            color: var(--accent-green);
+        }
+        .btn-download-all:hover {
+            transform: scale(1.03);
+            background-color: rgba(0, 255, 135, 0.2);
+            box-shadow: 0 0 15px rgba(0, 255, 135, 0.3);
+        }
+
+        .btn-run {
+            background: linear-gradient(135deg, var(--accent-cyan), #00b0ff);
+            border: none;
+            color: #020611;
+            box-shadow: 0 4px 15px rgba(0, 240, 255, 0.2);
+        }
+        .btn-run:hover:not(:disabled) {
+            transform: scale(1.03);
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+        }
+
+        .editor-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .line-numbers {
+            width: 60px;
+            background-color: rgba(6, 11, 25, 0.2);
+            border-right: 1px solid var(--glass-border);
+            padding: 20px 0;
+            font-family: 'Fira Code', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.2);
+            text-align: right;
+            padding-right: 16px;
+            box-sizing: border-box;
+            user-select: none;
+            overflow: hidden;
+        }
+
+        .textarea-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        textarea {
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            color: var(--text-main);
+            caret-color: #ffffff;
+            font-family: "Fira Code", Consolas, Monaco, monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            padding: 20px;
+            box-sizing: border-box;
+            white-space: pre;
+            margin: 0;
+            border: none;
+            outline: none;
+            resize: none;
+            overflow: auto;
+            tab-size: 2;
+        }
+
+        .custom-toast-holder {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .custom-toast {
+            background: rgba(10, 25, 50, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 14px 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 280px;
+            max-width: 380px;
+            position: relative;
+            overflow: hidden;
+            animation: toastPopup 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .custom-toast.error { border-color: var(--danger-color); }
+        .custom-toast.success { border-color: var(--accent-green); }
+
+        @keyframes toastPopup {
+            from { transform: translateY(15px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .toast-info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+            color: var(--text-main);
+            line-height: 1.4;
+        }
+
+        .toast-undo-action {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(0, 240, 255, 0.4);
+            color: var(--accent-cyan);
+            padding: 4px 12px;
+            border-radius: 30px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: inherit;
+            transition: var(--transition-smooth);
+        }
+        .toast-undo-action:hover {
+            background: rgba(0, 240, 255, 0.15);
+            transform: scale(1.05);
+        }
+
+        .toast-cooldown-line {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green));
+            width: 100%;
+            animation: toastDecrease 5s linear forwards;
+        }
+
+        @keyframes toastDecrease {
+            from { width: 100%; }
+            to { width: 0%; }
+        }
+
+        .custom-modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(2, 6, 17, 0.7);
+            backdrop-filter: blur(8px);
+            z-index: 10001;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .custom-modal-overlay.active { opacity: 1; pointer-events: auto; }
+
+        .custom-modal {
+            background: rgba(10, 25, 50, 0.9);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 24px;
+            width: 340px;
+            max-width: calc(100vw - 32px);
+            box-sizing: border-box;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .custom-modal.gh-modal { width: 400px; gap: 12px; }
+        .custom-modal h4 { margin: 0; font-size: 16px; color: var(--accent-cyan); }
+
+        .modal-note {
+            margin: 0;
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+        }
+        .modal-note a { color: var(--accent-cyan); }
+
+        .modal-input-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .custom-modal input {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            padding: 10px;
+            color: #fff;
+            outline: none;
+            font-family: inherit;
+            flex: 1;
+        }
+        .custom-modal input:focus { border-color: var(--accent-cyan); }
+        .custom-modal input[type="checkbox"] { flex: none; width: auto; padding: 0; }
+
+        .custom-modal select {
+            background: rgba(6, 11, 25, 0.9);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            padding: 10px;
+            color: var(--accent-cyan);
+            outline: none;
+            font-family: inherit;
+        }
+
+        .remember-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .gh-error {
+            min-height: 16px;
+            font-size: 12px;
+            color: var(--danger-color);
+        }
+
+        .custom-modal-btns { display: flex; justify-content: flex-end; gap: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="mouse-glow" id="cursorGlow"></div>
+
+    <div class="orb orb-cyan"></div>
+    <div class="orb orb-green"></div>
+
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-title" id="folderNameDisplay">Browser Sandbox Mode</div>
+            <button class="folder-btn" onclick="selectLocalFolder()">📁 Open Real Folder</button>
+            <button class="folder-btn gh-btn" id="ghBtn" onclick="onGhButton()">🐙 Connect GitHub</button>
+            <button class="new-file-btn" id="newFileBtn" onclick="createNewFilePrompt()">+ New File</button>
+            <button class="download-all-btn" onclick="downloadAllFiles()">📦 Download All (.zip)</button>
+            <button class="folder-btn refresh-btn" id="refreshBtn" onclick="refreshFromGitHub()" hidden>↻ Refresh from GitHub</button>
+            <label class="auto-push-row" id="autoPushRow" hidden>
+                <input type="checkbox" id="autoPushToggle"> Auto-push after 4s idle
+            </label>
+        </div>
+        <div class="file-list" id="fileListContainer"></div>
+    </div>
+
+    <div class="workspace">
+        <div class="top-bar">
+            <div class="current-file-info">
+                <span id="currentFileNameDisplay">No file open</span>
+                <span class="autosave-status" id="autosaveStatus"></span>
+            </div>
+            <div class="top-bar-right" style="display: flex; gap: 12px; align-items: center;">
+                <div class="top-actions">
+                    <button class="btn-action btn-save" id="saveBtn" onclick="saveActiveFile()" disabled>Save Manual</button>
+                    <button class="btn-action btn-download" id="downloadBtn" onclick="downloadActiveFile()" disabled>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        Download File
+                    </button>
+                    <button class="btn-action btn-download-all" onclick="downloadAllFiles()">
+                        📦 Download All
+                    </button>
+                    <button class="btn-action btn-run" id="runBtn" onclick="runCodeInNewTab()" disabled>▶ Play File</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="editor-container">
+            <div class="line-numbers" id="lineGutter">1</div>
+            <div class="textarea-wrapper">
+                <textarea id="codeArea" placeholder="Select or create a file to start editing..." spellcheck="false"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <div class="custom-toast-holder" id="customToastHolder"></div>
+
+    <!-- New file modal -->
+    <div class="custom-modal-overlay" id="customModalOverlay">
+        <div class="custom-modal">
+            <h4 id="modalTitle">Create File</h4>
+            <div class="modal-input-row">
+                <input type="text" id="modalInput" spellcheck="false">
+                <select id="modalExtSelect">
+                    <option value=".html">.html</option>
+                    <option value=".js">.js</option>
+                    <option value=".css">.css</option>
+                </select>
+            </div>
+            <div class="custom-modal-btns">
+                <button class="folder-btn" onclick="closeCustomModal()">Cancel</button>
+                <button class="btn-action btn-run" id="modalConfirmBtn" style="padding: 6px 16px; border-radius: 8px;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GitHub login modal -->
+    <div class="custom-modal-overlay" id="ghModalOverlay">
+        <form class="custom-modal gh-modal" id="ghForm" autocomplete="on">
+            <h4>🐙 Connect to GitHub</h4>
+            <p class="modal-note">
+                GitHub no longer accepts account passwords for apps like this one. Use a
+                <b>personal access token</b> as your password.
+                <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create one</a>
+                (fine-grained, limited to the one repository, with <b>Contents: Read and write</b>).
+            </p>
+            <input type="text" id="ghUser" placeholder="GitHub username" autocomplete="username" spellcheck="false">
+            <input type="password" id="ghToken" placeholder="Access token (your password)" autocomplete="current-password" spellcheck="false">
+            <input type="text" id="ghRepo" placeholder="Repository, e.g. my-code-files" spellcheck="false">
+            <input type="text" id="ghBranch" placeholder="Branch (leave blank for default)" spellcheck="false">
+            <label class="remember-row">
+                <input type="checkbox" id="ghRemember"> Remember me on this device (stores the token in this browser)
+            </label>
+            <div class="gh-error" id="ghError"></div>
+            <div class="custom-modal-btns">
+                <button type="button" class="folder-btn" onclick="closeGhModal()">Cancel</button>
+                <button type="submit" class="btn-action btn-run" id="ghConnectBtn" style="padding: 6px 16px; border-radius: 8px;">Connect</button>
+            </div>
+        </form>
+    </div>
+
+<script>
+    /* =====================================================
+       STATE
+       mode: 'virtual' (browser localStorage)
+             'folder'  (real folder on this computer)
+             'github'  (a repository on your GitHub account)
+    ===================================================== */
+    let mode = 'virtual';
+    let directoryHandle = null;
+    let activeFileName = "";
+    let autoSaveTimeout = null;
+    let activeUndoRegistry = {};
+    let editingFileName = null;
+    let lastLineCount = 0;
+    let openToken = 0;
+
+    // GitHub state
+    let gh = null;              // { token, user, owner, repo, branch }
+    let ghNames = [];           // file names in the repo root
+    const ghShas = {};          // file name -> blob sha (needed to update/delete)
+    const drafts = {};          // GitHub mode: unpushed edits by file name
+
+    const GH_KEY = 'gh_session';
+    const LS_KEY = 'sandbox_files';
+    const TEXT_EXTS = ['.html', '.htm', '.js', '.css', '.json', '.md', '.txt', '.svg'];
+    const DEFAULT_HTML = "<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { background: #060b19; color: #fff; text-align: center; font-family: sans-serif; padding-top: 50px; }\n    h1 { color: #00ff87; text-shadow: 0 0 10px rgba(0,255,135,0.3); }\n  </style>\n</head>\n<body>\n  <h1>Hello World!</h1>\n  <p>Modify this code and click 'Play File' to preview instantly.</p>\n</body>\n</html>";
+
+    let virtualFiles = (() => {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(LS_KEY));
+            if (parsed && typeof parsed === 'object') return parsed;
+        } catch (e) { /* ignore */ }
+        return { "1.html": DEFAULT_HTML };
+    })();
+
+    const $ = (id) => document.getElementById(id);
+    const codeArea = $('codeArea');
+    const lineGutter = $('lineGutter');
+    const fileListContainer = $('fileListContainer');
+    const currentFileNameDisplay = $('currentFileNameDisplay');
+    const folderNameDisplay = $('folderNameDisplay');
+    const saveBtn = $('saveBtn');
+    const downloadBtn = $('downloadBtn');
+    const runBtn = $('runBtn');
+    const autosaveStatus = $('autosaveStatus');
+    const cursorGlow = $('cursorGlow');
+    const customToastHolder = $('customToastHolder');
+    const customModalOverlay = $('customModalOverlay');
+    const modalTitle = $('modalTitle');
+    const modalInput = $('modalInput');
+    const modalExtSelect = $('modalExtSelect');
+    const modalConfirmBtn = $('modalConfirmBtn');
+    const ghBtn = $('ghBtn');
+    const refreshBtn = $('refreshBtn');
+    const autoPushRow = $('autoPushRow');
+    const autoPushToggle = $('autoPushToggle');
+    const ghModalOverlay = $('ghModalOverlay');
+
+    /* =====================================================
+       SMALL UTILITIES
+    ===================================================== */
+    function persistVirtual() {
+        try { localStorage.setItem(LS_KEY, JSON.stringify(virtualFiles)); }
+        catch (e) { showToast("Browser storage is full or blocked – download your files!", 'error'); }
+    }
+
+    function showToast(message, kind = 'info') {
+        const node = document.createElement('div');
+        node.className = `custom-toast ${kind}`;
+        const row = document.createElement('div');
+        row.className = 'toast-info-row';
+        const span = document.createElement('span');
+        span.textContent = message;
+        row.appendChild(span);
+        node.appendChild(row);
+        customToastHolder.appendChild(node);
+        setTimeout(() => node.remove(), kind === 'error' ? 6000 : 3500);
+    }
+
+    function setStatus(text, color = 'var(--accent-green)') {
+        autosaveStatus.innerText = text;
+        autosaveStatus.style.color = color;
+    }
+
+    function splitFileExt(filename) {
+        const idx = filename.lastIndexOf('.');
+        if (idx === -1) return { base: filename, ext: '.html' };
+        return { base: filename.substring(0, idx), ext: filename.substring(idx) };
+    }
+
+    function isTextName(name) {
+        const lower = name.toLowerCase();
+        return TEXT_EXTS.some(e => lower.endsWith(e));
+    }
+
+    function isValidFileName(name) {
+        return name.length > 0 && !/[\\/:*?"<>|]/.test(name) && name !== '.' && name !== '..';
+    }
+
+    function getNextIncrementalNumberName() {
+        let max = 0;
+        const known = new Set([...Object.keys(virtualFiles), ...ghNames]);
+        known.forEach(k => {
+            const num = parseInt(splitFileExt(k).base, 10);
+            if (!isNaN(num) && String(num) === splitFileExt(k).base && num > max) max = num;
+        });
+        return String(max + 1);
+    }
+
+    // UTF-8 safe base64 helpers for the GitHub API
+    function toB64(str) {
+        const bytes = new TextEncoder().encode(str);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        }
+        return btoa(bin);
+    }
+
+    function hasDrafts() { return Object.keys(drafts).length > 0; }
+
+    function confirmDiscardDrafts() {
+        if (!hasDrafts()) return true;
+        if (!confirm("You have changes that were not pushed to GitHub yet. They will be lost. Continue?")) return false;
+        Object.keys(drafts).forEach(k => delete drafts[k]);
+        return true;
+    }
+
+    window.addEventListener('beforeunload', (e) => {
+        if (hasDrafts()) { e.preventDefault(); e.returnValue = ''; }
+    });
+
+    /* =====================================================
+       GITHUB API
+    ===================================================== */
+    async function ghRequest(path, { method = 'GET', body, raw = false } = {}) {
+        const headers = {
+            'Accept': raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json',
+            'Authorization': 'Bearer ' + gh.token,
+            'X-GitHub-Api-Version': '2022-11-28'
+        };
+        const init = { method, headers };
+        if (body) {
+            headers['Content-Type'] = 'application/json';
+            init.body = JSON.stringify(body);
+        }
+        let res;
+        try {
+            res = await fetch('https://api.github.com' + path, init);
+        } catch (e) {
+            throw new Error("Network error – can't reach GitHub.");
+        }
+        if (!res.ok) {
+            let msg = res.statusText || ('HTTP ' + res.status);
+            try { const j = await res.json(); if (j && j.message) msg = j.message; } catch (e) { /* ignore */ }
+            if (res.status === 401) msg = "Token is invalid or expired. Please reconnect.";
+            else if (res.status === 403 && !/rate limit/i.test(msg)) msg = "Token has no permission here (it needs Contents: Read and write on this repository).";
+            const err = new Error(msg);
+            err.status = res.status;
+            throw err;
+        }
+        if (res.status === 204) return null;
+        return raw ? res.text() : res.json();
+    }
+
+    function ghRepoPath() {
+        return `/repos/${encodeURIComponent(gh.owner)}/${encodeURIComponent(gh.repo)}`;
+    }
+
+    function ghFilePath(name) {
+        return `${ghRepoPath()}/contents/${encodeURIComponent(name)}`;
+    }
+
+    async function ghFetchNames() {
+        try {
+            const items = await ghRequest(`${ghRepoPath()}/contents?ref=${encodeURIComponent(gh.branch)}`);
+            const list = Array.isArray(items) ? items : [];
+            Object.keys(ghShas).forEach(k => delete ghShas[k]);
+            const names = [];
+            list.forEach(it => {
+                if (it.type === 'file' && isTextName(it.name)) {
+                    names.push(it.name);
+                    ghShas[it.name] = it.sha;
+                }
+            });
+            ghNames = names;
+        } catch (e) {
+            if (e.status === 404 && /empty/i.test(e.message)) {
+                ghNames = [];
+                Object.keys(ghShas).forEach(k => delete ghShas[k]);
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    async function ghGetText(name) {
+        return ghRequest(`${ghFilePath(name)}?ref=${encodeURIComponent(gh.branch)}`, { raw: true });
+    }
+
+    async function ghPut(name, content) {
+        const existing = ghShas[name];
+        const body = {
+            message: `${existing ? 'Update' : 'Create'} ${name} via Code Editor`,
+            content: toB64(content),
+            branch: gh.branch
+        };
+        if (existing) body.sha = existing;
+        try {
+            const r = await ghRequest(ghFilePath(name), { method: 'PUT', body });
+            ghShas[name] = r.content.sha;
+            if (!ghNames.includes(name)) ghNames.push(name);
+        } catch (e) {
+            if (e.status === 409 || e.status === 422) {
+                e.message = "GitHub has a different version of this file. Click ↻ Refresh, then re-apply your edit.";
+            }
+            throw e;
+        }
+    }
+
+    async function ghDelete(name) {
+        const sha = ghShas[name];
+        if (!sha) throw new Error("Unknown file version – click ↻ Refresh and try again.");
+        await ghRequest(ghFilePath(name), {
+            method: 'DELETE',
+            body: { message: `Delete ${name} via Code Editor`, sha, branch: gh.branch }
+        });
+        delete ghShas[name];
+        ghNames = ghNames.filter(n => n !== name);
+    }
+
+    /* =====================================================
+       UNIFIED FILE LAYER (virtual / folder / github)
+    ===================================================== */
+    async function listFiles() {
+        let names = [];
+        if (mode === 'virtual') names = Object.keys(virtualFiles);
+        else if (mode === 'folder') {
+            for await (const entry of directoryHandle.values()) {
+                if (entry.kind === 'file') names.push(entry.name);
+            }
+        } else names = ghNames.slice();
+        return names
+            .filter(n => !activeUndoRegistry[n])
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    }
+
+    async function readFile(name) {
+        if (mode === 'virtual') return virtualFiles[name] || "";
+        if (mode === 'folder') {
+            const h = await directoryHandle.getFileHandle(name);
+            return (await h.getFile()).text();
+        }
+        if (drafts[name] !== undefined) return drafts[name];
+        return ghGetText(name);
+    }
+
+    async function writeFile(name, content) {
+        if (mode === 'virtual') {
+            virtualFiles[name] = content;
+            persistVirtual();
+        } else if (mode === 'folder') {
+            const h = await directoryHandle.getFileHandle(name, { create: true });
+            const w = await h.createWritable();
+            await w.write(content);
+            await w.close();
+        } else {
+            await ghPut(name, content);
+        }
+    }
+
+    async function removeFile(name) {
+        if (mode === 'virtual') { delete virtualFiles[name]; persistVirtual(); }
+        else if (mode === 'folder') await directoryHandle.removeEntry(name);
+        else await ghDelete(name);
+    }
+
+    /* =====================================================
+       MODE / UI HELPERS
+    ===================================================== */
+    function setEditor(value) {
+        codeArea.value = value;
+        lastLineCount = 0;
+        updateLineNumbers();
+        codeArea.scrollTop = 0;
+        syncScroll();
+    }
+
+    function setButtonsEnabled(enabled) {
+        runBtn.disabled = saveBtn.disabled = downloadBtn.disabled = !enabled;
+    }
+
+    function resetWorkspace() {
+        clearTimeout(autoSaveTimeout);
+        activeFileName = "";
+        setEditor("");
+        currentFileNameDisplay.innerText = "No file open";
+        setStatus("");
+        setButtonsEnabled(false);
+    }
+
+    function updateModeUI() {
+        if (mode === 'virtual') folderNameDisplay.innerText = "Browser Sandbox Mode";
+        else if (mode === 'folder') folderNameDisplay.innerText = `Folder: ${directoryHandle.name}`;
+        else folderNameDisplay.innerText = `GitHub: ${gh.owner}/${gh.repo} @ ${gh.branch}`;
+        folderNameDisplay.title = folderNameDisplay.innerText;
+
+        const isGh = mode === 'github';
+        ghBtn.innerText = isGh ? `🐙 Disconnect (${gh.user})` : "🐙 Connect GitHub";
+        ghBtn.classList.toggle('connected', isGh);
+        refreshBtn.hidden = !isGh;
+        autoPushRow.hidden = !isGh;
+        saveBtn.innerText = isGh ? "⬆ Push to GitHub" : "Save Manual";
+    }
+
+    async function enterMode(newMode) {
+        mode = newMode;
+        resetWorkspace();
+        updateModeUI();
+        await loadFileList();
+    }
+
+    /* =====================================================
+       STARTUP
+    ===================================================== */
+    document.addEventListener('mousemove', (e) => {
+        cursorGlow.style.opacity = "1";
+        cursorGlow.style.left = e.clientX + 'px';
+        cursorGlow.style.top = e.clientY + 'px';
+    });
+    document.addEventListener('mouseleave', () => { cursorGlow.style.opacity = "0"; });
+
+    document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            if (activeFileName) saveActiveFile(false);
+        }
+        if (e.key === 'Escape') { closeGhModal(); closeCustomModal(); }
+    });
+
+    codeArea.addEventListener('input', handleInput);
+    codeArea.addEventListener('scroll', syncScroll);
+    codeArea.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault();
+            const start = codeArea.selectionStart;
+            const end = codeArea.selectionEnd;
+            codeArea.setRangeText("  ", start, end, 'end');
+            handleInput();
+        }
+    });
+
+    window.addEventListener('DOMContentLoaded', async () => {
+        const saved = loadSession();
+        if (saved) {
+            gh = saved;
+            mode = 'github';
+            updateModeUI();
+            try {
+                await ghFetchNames();
+                await loadFileList();
+                if (ghNames.length) openFile(ghNames[0]);
+                return;
+            } catch (e) {
+                showToast("GitHub session ended: " + e.message, 'error');
+                clearSession();
+                gh = null;
+                mode = 'virtual';
+            }
+        }
+        updateModeUI();
+        await loadFileList();
+        const names = Object.keys(virtualFiles);
+        if (names.length > 0) openFile(names[0]);
+    });
+
+    /* =====================================================
+       INPUT / AUTOSAVE
+    ===================================================== */
+    function handleInput() {
+        updateLineNumbers();
+        if (!activeFileName) return;
+        clearTimeout(autoSaveTimeout);
+
+        if (mode === 'github') {
+            drafts[activeFileName] = codeArea.value;
+            setStatus("● Unsaved – press Ctrl+S to push", 'var(--accent-orange)');
+            const active = fileListContainer.querySelector('.file-item.active');
+            if (active) active.classList.add('dirty');
+            if (autoPushToggle.checked) {
+                autoSaveTimeout = setTimeout(() => saveActiveFile(true), 4000);
+            }
+            return;
+        }
+
+        setStatus("● Typing...", 'var(--accent-cyan)');
+        autoSaveTimeout = setTimeout(() => saveActiveFile(true), 600);
+    }
+
+    /* =====================================================
+       FOLDER MODE
+    ===================================================== */
+    async function selectLocalFolder() {
+        if (!window.showDirectoryPicker) {
+            showToast("Your browser doesn't support local folder access (use Chrome or Edge).", 'error');
+            return;
+        }
+        if (!confirmDiscardDrafts()) return;
+        try {
+            directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            await enterMode('folder');
+        } catch (err) {
+            console.log("Folder selection canceled.");
+        }
+    }
+
+    /* =====================================================
+       GITHUB LOGIN / SESSION
+    ===================================================== */
+    function saveSession(remember) {
+        clearSession();
+        (remember ? localStorage : sessionStorage).setItem(GH_KEY, JSON.stringify(gh));
+    }
+
+    function loadSession() {
+        try {
+            const raw = sessionStorage.getItem(GH_KEY) || localStorage.getItem(GH_KEY);
+            const s = raw ? JSON.parse(raw) : null;
+            return s && s.token && s.owner && s.repo && s.branch ? s : null;
+        } catch (e) { return null; }
+    }
+
+    function clearSession() {
+        try { sessionStorage.removeItem(GH_KEY); localStorage.removeItem(GH_KEY); } catch (e) { /* ignore */ }
+    }
+
+    function onGhButton() {
+        if (mode === 'github') disconnectGitHub();
+        else openGhModal();
+    }
+
+    function openGhModal() {
+        $('ghError').innerText = "";
+        $('ghToken').value = "";
+        ghModalOverlay.classList.add('active');
+        setTimeout(() => ($('ghUser').value ? $('ghToken') : $('ghUser')).focus(), 50);
+    }
+
+    function closeGhModal() {
+        ghModalOverlay.classList.remove('active');
+    }
+
+    $('ghForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        connectGitHub();
+    });
+
+    async function connectGitHub() {
+        const username = $('ghUser').value.trim();
+        const token = $('ghToken').value.trim();
+        const repoInput = $('ghRepo').value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '');
+        const branchInput = $('ghBranch').value.trim();
+        const remember = $('ghRemember').checked;
+        const errorBox = $('ghError');
+        const connectBtn = $('ghConnectBtn');
+
+        if (!username || !token || !repoInput) {
+            errorBox.innerText = "Username, token and repository are required.";
+            return;
+        }
+        if (!confirmDiscardDrafts()) return;
+
+        errorBox.innerText = "";
+        connectBtn.disabled = true;
+        connectBtn.innerText = "Connecting...";
+        const previous = gh;
+
+        try {
+            gh = { token };
+            const me = await ghRequest('/user');
+            if (me.login.toLowerCase() !== username.toLowerCase()) {
+                throw new Error(`This token belongs to "${me.login}", not "${username}".`);
+            }
+            let owner = me.login, repo = repoInput;
+            if (repoInput.includes('/')) [owner, repo] = repoInput.split('/');
+            const info = await ghRequest(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
+            if (info.permissions && info.permissions.push === false) {
+                throw new Error("This token can only read that repository. It needs Contents: Read and write.");
+            }
+            gh = {
+                token,
+                user: me.login,
+                owner: info.owner.login,
+                repo: info.name,
+                branch: branchInput || info.default_branch
+            };
+            await ghFetchNames();
+            saveSession(remember);
+            $('ghToken').value = "";
+            closeGhModal();
+            await enterMode('github');
+            showToast(`Connected to ${gh.owner}/${gh.repo}`, 'success');
+            if (ghNames.length) openFile(ghNames[0]);
+        } catch (e) {
+            gh = previous;
+            if (e.status === 404) e.message = "Repository or branch not found (or the token can't see it).";
+            errorBox.innerText = e.message;
+        } finally {
+            connectBtn.disabled = false;
+            connectBtn.innerText = "Connect";
+        }
+    }
+
+    async function disconnectGitHub() {
+        if (!confirmDiscardDrafts()) return;
+        clearSession();
+        gh = null;
+        ghNames = [];
+        Object.keys(ghShas).forEach(k => delete ghShas[k]);
+        await enterMode('virtual');
+        const names = Object.keys(virtualFiles);
+        if (names.length) openFile(names[0]);
+        showToast("Disconnected from GitHub.");
+    }
+
+    async function refreshFromGitHub() {
+        if (mode !== 'github') return;
+        refreshBtn.disabled = true;
+        try {
+            await ghFetchNames();
+            await loadFileList();
+            // Re-read the open file from GitHub unless it has unpushed edits
+            if (activeFileName && drafts[activeFileName] === undefined) {
+                if (ghNames.includes(activeFileName)) openFile(activeFileName);
+                else resetWorkspace();
+            }
+            showToast("Refreshed from GitHub.", 'success');
+        } catch (e) {
+            showToast(e.message, 'error');
+        } finally {
+            refreshBtn.disabled = false;
+        }
+    }
+
+    /* =====================================================
+       FILE LIST
+    ===================================================== */
+    async function loadFileList() {
+        fileListContainer.innerHTML = "";
+        let names;
+        try {
+            names = await listFiles();
+        } catch (err) {
+            showToast("Failed to read file list.", 'error');
+            return;
+        }
+        if (names.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'list-empty';
+            empty.textContent = mode === 'github'
+                ? 'No editable files in this repository root. Click "+ New File"'
+                : mode === 'folder' ? 'Empty folder. Create a new file!' : 'No files found. Click "+ New File"';
+            fileListContainer.appendChild(empty);
+            return;
+        }
+        names.forEach(createFileItemUI);
+    }
+
+    function iconButton(label, title, className, handler) {
+        const b = document.createElement('button');
+        b.className = 'action-btn ' + className;
+        b.title = title;
+        b.textContent = label;
+        b.addEventListener('click', (e) => { e.stopPropagation(); handler(); });
+        return b;
+    }
+
+    function createFileItemUI(name) {
+        const item = document.createElement('div');
+        item.className = 'file-item'
+            + (activeFileName === name ? ' active' : '')
+            + (drafts[name] !== undefined ? ' dirty' : '');
+        item.addEventListener('click', (e) => {
+            if (e.target.closest('input, select, button')) return;
+            openFile(name);
+        });
+
+        if (editingFileName === name) {
+            buildRenameRow(item, name);
+        } else {
+            const label = document.createElement('span');
+            label.className = 'file-name';
+            label.textContent = name;
+            label.title = name;
+            const actions = document.createElement('div');
+            actions.className = 'file-actions';
+            actions.appendChild(iconButton('✏️', 'Rename', 'rename', () => startInlineRename(name)));
+            actions.appendChild(iconButton('🗑️', 'Delete', 'delete', () => deleteFilePrompt(name)));
+            item.appendChild(label);
+            item.appendChild(actions);
+            fileListContainer.appendChild(item);
+            return;
+        }
+        fileListContainer.appendChild(item);
+        const input = item.querySelector('input');
+        input.focus();
+        input.select();
+    }
+
+    function buildRenameRow(item, name) {
+        const split = splitFileExt(name);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'file-name-input';
+        input.value = split.base;
+
+        const select = document.createElement('select');
+        select.className = 'file-ext-select';
+        const exts = ['.html', '.js', '.css'];
+        if (!exts.includes(split.ext)) exts.push(split.ext);
+        exts.forEach(ext => {
+            const o = document.createElement('option');
+            o.value = ext; o.textContent = ext;
+            if (ext === split.ext) o.selected = true;
+            select.appendChild(o);
+        });
+
+        const actions = document.createElement('div');
+        actions.className = 'file-actions';
+        actions.style.cssText = 'opacity:1; margin-left:auto;';
+
+        let finished = false;
+        const finish = (commit) => {
+            if (finished) return;
+            finished = true;
+            if (commit) commitInlineRename(name, input.value.trim(), select.value);
+            else { editingFileName = null; loadFileList(); }
+        };
+
+        const ok = iconButton('✔', 'Confirm', '', () => finish(true));
+        ok.style.color = 'var(--accent-green)';
+        actions.appendChild(ok);
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') finish(true);
+            else if (e.key === 'Escape') finish(false);
+        });
+        input.addEventListener('blur', () => {
+            setTimeout(() => {
+                if (document.activeElement !== input && document.activeElement !== select) finish(true);
+            }, 150);
+        });
+
+        item.appendChild(input);
+        item.appendChild(select);
+        item.appendChild(actions);
+    }
+
+    /* =====================================================
+       CREATE / RENAME
+    ===================================================== */
+    function openCustomModal(title, defaultVal, callback) {
+        modalTitle.innerText = title;
+        modalInput.value = defaultVal;
+        modalExtSelect.value = ".html";
+        customModalOverlay.classList.add('active');
+        modalInput.focus();
+        modalInput.select();
+
+        const submit = () => {
+            callback(modalInput.value.trim(), modalExtSelect.value);
+            closeCustomModal();
+        };
+        modalConfirmBtn.onclick = submit;
+        modalInput.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+    }
+
+    function closeCustomModal() {
+        customModalOverlay.classList.remove('active');
+    }
+
+    function createNewFilePrompt() {
+        openCustomModal("Create New File", getNextIncrementalNumberName(), async (name, ext) => {
+            if (!name) name = getNextIncrementalNumberName();
+            const fullName = name + ext;
+            if (!isValidFileName(fullName)) { showToast("That file name isn't valid.", 'error'); return; }
+
+            const existing = await listFiles();
+            if (existing.includes(fullName)) { showToast("A file with that name already exists!", 'error'); return; }
+
+            try {
+                if (mode === 'github') setStatus("↑ Creating on GitHub...", 'var(--accent-cyan)');
+                await writeFile(fullName, "");
+                activeFileName = fullName;
+                setEditor("");
+                currentFileNameDisplay.innerText = `Editing: ${activeFileName}`;
+                setStatus("");
+                setButtonsEnabled(true);
+                await loadFileList();
+            } catch (err) {
+                showToast("Error creating file: " + err.message, 'error');
+                setStatus("");
+            }
+        });
+    }
+
+    function startInlineRename(name) {
+        if (activeUndoRegistry[name]) return;
+        editingFileName = name;
+        loadFileList();
+    }
+
+    async function commitInlineRename(oldName, baseName, extension) {
+        editingFileName = null;
+        const newName = baseName + extension;
+        if (!baseName || newName === oldName) { loadFileList(); return; }
+        if (!isValidFileName(newName)) { showToast("That file name isn't valid.", 'error'); loadFileList(); return; }
+
+        try {
+            const existing = await listFiles();
+            if (existing.includes(newName)) {
+                showToast("A file with that name already exists!", 'error');
+                loadFileList();
+                return;
+            }
+            const isActive = activeFileName === oldName;
+            // Use unsaved editor text for the open file so renames never lose edits
+            const content = isActive ? codeArea.value : await readFile(oldName);
+
+            if (mode === 'github') showToast("Renaming on GitHub (2 commits)...");
+            await writeFile(newName, content);
+            await removeFile(oldName);
+
+            if (mode === 'github') {
+                delete drafts[oldName];
+                delete drafts[newName];
+            }
+            if (isActive) {
+                activeFileName = newName;
+                currentFileNameDisplay.innerText = `Editing: ${activeFileName}`;
+            }
+        } catch (err) {
+            showToast("Failed to rename file: " + err.message, 'error');
+        }
+        loadFileList();
+    }
+
+    /* =====================================================
+       OPEN / SAVE / DOWNLOAD
+    ===================================================== */
+    async function openFile(name) {
+        if (activeUndoRegistry[name]) return;
+        clearTimeout(autoSaveTimeout);
+        const myToken = ++openToken;
+        activeFileName = name;
+        currentFileNameDisplay.innerText = `Editing: ${name}`;
+        setStatus(mode === 'github' && drafts[name] === undefined ? "Loading from GitHub..." : "", 'var(--accent-cyan)');
+        loadFileList();
+        try {
+            const text = await readFile(name);
+            if (myToken !== openToken) return; // user clicked another file meanwhile
+            setEditor(text);
+            setButtonsEnabled(true);
+            if (mode === 'github' && drafts[name] !== undefined) {
+                setStatus("● Unsaved – press Ctrl+S to push", 'var(--accent-orange)');
+            } else {
+                setStatus("");
+            }
+        } catch (err) {
+            if (myToken !== openToken) return;
+            showToast("Could not read file: " + err.message, 'error');
+            resetWorkspace();
+            loadFileList();
+        }
+    }
+
+    async function saveActiveFile(isAuto = false) {
+        if (!activeFileName || activeUndoRegistry[activeFileName]) return;
+        const name = activeFileName;
+        const content = codeArea.value;
+
+        if (mode === 'github') {
+            if (isAuto && drafts[name] === undefined) return;
+            setStatus("↑ Pushing to GitHub...", 'var(--accent-cyan)');
+            saveBtn.disabled = true;
+            try {
+                await ghPut(name, content);
+                if (drafts[name] === content) delete drafts[name];
+                if (activeFileName === name) {
+                    setStatus(drafts[name] !== undefined ? "● Unsaved – press Ctrl+S to push" : "● Pushed to GitHub",
+                              drafts[name] !== undefined ? 'var(--accent-orange)' : 'var(--accent-green)');
+                }
+                loadFileList();
+            } catch (err) {
+                setStatus("⚠ Push failed", 'var(--danger-color)');
+                showToast(err.message, 'error');
+            } finally {
+                saveBtn.disabled = !activeFileName;
+            }
+            return;
+        }
+
+        try {
+            await writeFile(name, content);
+            showSavedStatus(isAuto);
+        } catch (err) {
+            setStatus("⚠ Save Failed", 'var(--danger-color)');
+        }
+    }
+
+    function showSavedStatus(isAuto) {
+        if (isAuto) {
+            setStatus("● Saved");
+        } else {
+            currentFileNameDisplay.innerText = `Editing: ${activeFileName} (Saved Changes!)`;
+            setTimeout(() => {
+                if (activeFileName) currentFileNameDisplay.innerText = `Editing: ${activeFileName}`;
+            }, 1500);
+        }
+    }
+
+    function triggerDownload(blob, filename) {
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    }
+
+    function downloadActiveFile() {
+        if (!activeFileName || activeUndoRegistry[activeFileName]) return;
+        triggerDownload(new Blob([codeArea.value], { type: "text/plain" }), activeFileName);
+    }
+
+    /* --- BUNDLE & DOWNLOAD ALL FILES INTO ONE ZIP --- */
+    async function downloadAllFiles() {
+        if (typeof JSZip === 'undefined') {
+            showToast("JSZip library failed to load. Check your internet connection.", 'error');
+            return;
+        }
+        try {
+            const names = await listFiles();
+            if (names.length === 0) { showToast("No files available to download.", 'error'); return; }
+
+            const zip = new JSZip();
+            const contents = await Promise.all(names.map(async (name) => {
+                // The open file always uses what is currently in the editor
+                if (name === activeFileName) return codeArea.value;
+                return readFile(name);
+            }));
+            names.forEach((name, i) => zip.file(name, contents[i]));
+
+            const blob = await zip.generateAsync({ type: "blob" });
+            triggerDownload(blob, mode === 'github' ? `${gh.repo}.zip` : "all_files.zip");
+        } catch (err) {
+            showToast("Error exporting files: " + err.message, 'error');
+        }
+    }
+
+    /* =====================================================
+       RUN
+    ===================================================== */
+    function escapeHtml(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function runCodeInNewTab() {
+        if (!activeFileName || activeUndoRegistry[activeFileName]) return;
+        const code = codeArea.value;
+        const lowerName = activeFileName.toLowerCase();
+        let finalOutput = "";
+
+        if (lowerName.endsWith('.js')) {
+            finalOutput = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>JS Runner - ${escapeHtml(activeFileName)}</title>
+                    <style>
+                        body { background: #060b19; color: #00ff87; font-family: monospace; padding: 20px; }
+                        #output { white-space: pre-wrap; font-size: 16px; }
+                    </style>
+                </head>
+                <body>
+                    <h3>Console Simulation Output:</h3>
+                    <hr border="1" color="#333">
+                    <div id="output"></div>
+                    <script>
+                        const box = document.getElementById('output');
+                        console.log = function(...args) { box.innerText += args.join(' ') + '\\n'; };
+                        window.onerror = function(m, u, l) { box.style.color = '#ff3333'; box.innerText += 'Line ' + l + ': ' + m + '\\n'; };
+                        try { ${code} } catch(e) { box.style.color = '#ff3333'; box.innerText += e.message + '\\n'; }
+                    <\/script>
+                </body>
+                </html>
+            `;
+        } else if (lowerName.endsWith('.css')) {
+            finalOutput = `<html><head><style>${code}</style></head><body style="padding:40px; font-family:sans-serif; background:#060b19; color:#fff;"><h1>CSS Sandbox Preview</h1><button style="background:#00f0ff; border:none; padding:10px 20px; border-radius:20px;">Example Button Element</button></body></html>`;
+        } else if (/\.(md|txt|json)$/.test(lowerName)) {
+            finalOutput = `<html><body style="background:#060b19;color:#fff;padding:24px;"><pre style="white-space:pre-wrap;font-family:monospace;">${escapeHtml(code)}</pre></body></html>`;
+        } else {
+            finalOutput = code;
+        }
+
+        const newTab = window.open('about:blank', '_blank');
+        if (newTab) {
+            newTab.document.open();
+            newTab.document.write(finalOutput);
+            newTab.document.close();
+        } else {
+            showToast("Pop-up blocked! Allow pop-ups for this page to play files in a new tab.", 'error');
+        }
+    }
+
+    /* =====================================================
+       DELETE WITH 5s UNDO
+    ===================================================== */
+    function deleteFilePrompt(name) {
+        const cachedVirtualText = mode === 'virtual' ? virtualFiles[name] : null;
+
+        if (activeFileName === name) resetWorkspace();
+
+        const toastId = "t_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+        activeUndoRegistry[name] = {
+            mode,
+            dataContent: cachedVirtualText,
+            domReferenceId: toastId,
+            countdownTimer: setTimeout(() => commitPermanentDeletion(name), 5000)
+        };
+
+        if (mode === 'virtual') {
+            delete virtualFiles[name];
+            persistVirtual();
+        }
+
+        loadFileList();
+        displayUndoToastLayout(name, toastId);
+    }
+
+    function displayUndoToastLayout(targetFile, htmlNodeId) {
+        const toastNode = document.createElement('div');
+        toastNode.className = 'custom-toast';
+        toastNode.id = htmlNodeId;
+
+        const row = document.createElement('div');
+        row.className = 'toast-info-row';
+        const text = document.createElement('span');
+        text.append("Deleted ");
+        const strong = document.createElement('strong');
+        strong.textContent = targetFile;
+        text.appendChild(strong);
+        const undo = document.createElement('button');
+        undo.className = 'toast-undo-action';
+        undo.textContent = 'Undo';
+        undo.addEventListener('click', () => reverseDeletionSequence(targetFile));
+        row.appendChild(text);
+        row.appendChild(undo);
+
+        const line = document.createElement('div');
+        line.className = 'toast-cooldown-line';
+
+        toastNode.appendChild(row);
+        toastNode.appendChild(line);
+        customToastHolder.appendChild(toastNode);
+    }
+
+    function reverseDeletionSequence(name) {
+        const record = activeUndoRegistry[name];
+        if (!record) return;
+        clearTimeout(record.countdownTimer);
+
+        if (record.mode === 'virtual') {
+            virtualFiles[name] = record.dataContent;
+            persistVirtual();
+        }
+
+        const liveNode = document.getElementById(record.domReferenceId);
+        if (liveNode) liveNode.remove();
+        delete activeUndoRegistry[name];
+
+        loadFileList();
+        openFile(name);
+    }
+
+    async function commitPermanentDeletion(name) {
+        const record = activeUndoRegistry[name];
+        if (!record) return;
+
+        if (record.mode !== 'virtual') {
+            try {
+                await removeFile(name);
+                delete drafts[name];
+            } catch (err) {
+                showToast(`Couldn't delete ${name}: ${err.message}`, 'error');
+            }
+        }
+
+        const closingNode = document.getElementById(record.domReferenceId);
+        if (closingNode) closingNode.remove();
+
+        delete activeUndoRegistry[name];
+        loadFileList();
+    }
+
+    /* =====================================================
+       LINE NUMBERS
+    ===================================================== */
+    function updateLineNumbers() {
+        const count = Math.max(1, codeArea.value.split('\n').length);
+        if (count === lastLineCount) return;
+        lastLineCount = count;
+        const nums = new Array(count);
+        for (let i = 0; i < count; i++) nums[i] = i + 1;
+        lineGutter.innerHTML = nums.join('<br>');
+    }
+
+    function syncScroll() {
+        lineGutter.scrollTop = codeArea.scrollTop;
+    }
+</script>
+
+</body>
+</html>
